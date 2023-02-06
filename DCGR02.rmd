@@ -1,0 +1,580 @@
+---
+title: "DCGR 02 - Crime Preference in Champaign County"
+author: "Andrew Vanthournout, Michael Zhuang, Xingnuo Duan"
+date: "Due 12/21/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+
+We conduct a multivariate analysis of CCSO Bookings dataset, which contains individuals who were booked into jail in Champaign County between the years 2011-2016. The main method of this report includes decision tree, text mining, and clustering analysis, supported with statistic tables and visualizations. We focus on examining the pattern of crime committed by different group of people in Champaign County. Specifically, we make analysis separately for students, employed or unemployed, and military. 
+
+## Introduction
+
+For residents in Champaign, one of the most important thing they should care about is the safety of their living environment. Unfortunately, Champaign is not one of the safest communities in America. Actually, according to the FBI crime data, crime rate of Champaign is higher than 93% of the state’s cities and towns of all sizes. Also, it is much higher than the state average and the national average, as Annual Crime Data suggests. It means that for every 100 thousand people, there are about 10 daily crimes. Therefore, people may be curious how crime code diverse in different groups of people, and some implicit patterns of crime behind the data are worth of study. A thorough statistical analysis could help local government and police officers have better idea in preventing potential crime happen in the future, and also help the residents in Champaign to foresee and keep away from dangerous. 
+
+The CCSO Booking dataset we used contains over 67764 observations and 12 columns for individuals who were booked into jail in Champaign County between the years 2011-2016. The individuals are not identifiable based on personal identity, but they are given unique jacket numbers. The demographics of the people, reasons for being booked, and crime code are also given in the data. The original source is the Champaign County Sheriff Office (CCSO), which can be found in https://github.com/CUHackNight/JailData.
+
+In this report we investigate the "preference of crime", or patterns in committing crime, for different groups of people in Champaign County. First we look at empoyment status, specifically empolyed vs unemployed. We will look into which types of crimes are being committed most often by each employment group and attempt to draw some conculsions about these results. We will then do some text mining on the crime codes of these people to help visualize these results. Next, for the student group, we specificlly pay attention to their age (Age at Arrest) and the types of crime (Crime Code) committed by students, which we explore the diversion of crime type based on different age. We build a decision tree model for the two most frequent types of crime that are committed by students, and look for some interesting patterns associate with their age.
+Lastly, we looked at the people with military backgrounds. We first used k-means clustering to separate these people into three clusters based on their demographics, and then we examined the common pattern and unique patterns in each of these clusters.
+
+## Analysis
+
+#### Employed or Unemployed Group - Crime Code Diversion in Occupation
+
+```{r include=FALSE}
+library(readr)
+CCSO <- read_csv("https://uofi.box.com/shared/static/9elozjsg99bgcb7gb546wlfr3r2gc9b7.csv")
+
+colnames(CCSO) <- tolower(colnames(CCSO))
+Occ <- CCSO$occupation
+CC <- CCSO$`crime code`
+CCSO_OCC_CC <- data.frame(na.omit(cbind(Occ,CC)))
+```
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(wordcloud)
+count_cc <- count(CCSO_OCC_CC, CC)
+
+count_occ <-  count(CCSO_OCC_CC,Occ)
+
+common_occ <- count_occ[count_occ$n > 300,]
+common_cc <- count_cc[count_cc$n > 837,]
+
+Occ_namesFixed <- data.frame(cbind("Occupation" = c("clerks","construction","disabled","driver","factory worker","factory","janitorial","laborer","lawn work","mason,roofer,painter,plumber","mechanic","medical","other","professional","retail,realestate,insurance,freelance","retired","selfemployed","service","student","unemployed"),"n" = common_occ$n))
+```
+
+First We will look at some basic statistics for employment status and crime codes to help us get a better understanding of the data set.
+
+```{r}
+ggplot(data = Occ_namesFixed,aes(x=Occupation,y=common_occ$n))+
+  geom_bar(stat = "identity", fill = "orange")+
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=1),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank())+
+  xlab("Occupation")+
+  ylab("Observations")+
+  ylim(c(0,35000))+
+  ggtitle("The Twenty Most Common Occupations")
+```
+
+This graph shows us the twenty most common occupations that appear in our dataset. It is easy to see that the category "unemployed" has by far the most occurances. The occupations: service, student, factory worker, and construction are aslo noticably above the others. 
+
+```{r}
+ggplot(data = common_cc,aes(x=CC,y=common_cc$n))+
+  geom_bar(stat = "identity", fill = "blue")+
+  theme(axis.text.x=element_text(angle=68,hjust=1,vjust=1),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank())+
+  xlab("Crime Code")+
+  ylab("Observations")+
+  ylim(c(0,6500))+
+  ggtitle("The Twenty Most Common Crime Codes")
+```
+
+This grapgh shows us the twenty most common crime codes that appear in our data set. Domestic Battery, DUI, and Suspended or Revoked Drivers Licensce are the most common occurances other than broad categories such as "misc. jail code" or "other criminal offenses".
+
+
+Now we will seperate our data set into employed and unemployed, and categorized our crimes into five categories: violent/malicious, traffic violations, drug violations, justice system related crimes, and other.
+
+```{r}
+unemployed <- CCSO[CCSO$occupation == "UNEMPLOYED",]
+count_cc <- na.omit(count(unemployed,`crime code`))
+count_cc_top <- count_cc[count_cc$n>417,]
+```
+
+Violent or Malicious crimes for unemployed people:
+```{r}
+violent_malicious <- count_cc_top[count_cc_top$`crime code` == "AGGRAVATED BATTERY"|count_cc_top$`crime code` == "BURGLARY"|count_cc_top$`crime code` =="DOMESTIC BATTERY"|count_cc_top$`crime code` == "CRIMINAL DAMAGE TO PROPERTY"|count_cc_top$`crime code` ==   "THEFT: OVER $300"|count_cc_top$`crime code` == "CRIMINAL TRESPASS TO LAND"|count_cc_top$`crime code` =="RETAIL THEFT",]
+violent_malicious
+violent_malicious_sum = sum(violent_malicious$n)
+```
+
+Traffic violations for unemployed people:
+```{r}
+traffic <- count_cc_top[count_cc_top$`crime code` =="OTHER TRAFFIC OFFENSES"|count_cc_top$`crime code` == "SUSPENDED OR REVOKED DRIVERS LICENSE",]
+traffic
+traffic_sum = sum(traffic$n)
+```
+
+Drug violations for unemployed people:
+```{r}
+drugs <- count_cc_top[count_cc_top$`crime code` == "POSSESSION OF DRUG EQUIPMENT"|count_cc_top$`crime code` == "CANNABIS: POSSESSION OF 30 GRAMS OR LESS"|count_cc_top$`crime code` == "POSSESSING A CONTROLLED SUBSTANCE"|count_cc_top$`crime code` == "DRIVING UNDER THE INFLUENCE OF ALCOHOL",]
+drugs
+drugs_sum = sum(drugs$n)
+```
+
+Justice system related crimes for unemployed people:
+```{r}
+justice <- count_cc_top[count_cc_top$`crime code` == "OBSTRUCTING JUSTICE"|count_cc_top$`crime code` =="PAROLE REVOCATION"|count_cc_top$`crime code` =="WARRANTS/SUBPEONAS/SUMMONS"|count_cc_top$`crime code` == "RESISTING,OBSTRUCTING,OR DISARMING A POLICE OFC",]
+ justice
+ justice_sum = sum(drugs$n)
+```
+
+Other crimes for unemployed people:
+```{r}
+ other <- count_cc_top[count_cc_top$`crime code` == "OTHER CRIMINAL OFFENSES"| count_cc_top$`crime code` =="MISC JAIL CODE"| count_cc_top$`crime code` =="ALL OTHER DISORDERLY CONDUCT: NOT DRUNK",]
+ other
+ other_sum = sum(other$n)
+```
+
+Total breakdown of categorized crime for umeployed people:
+```{r}
+ categorized_crimes_unemp = data.frame(cbind("Categories" = c("Violent/Malicious","Traffic","Drugs","Justice","Other"),"Count" = c(violent_malicious_sum,traffic_sum,drugs_sum,justice_sum,other_sum)))
+ categorized_crimes_unemp
+ 
+ percent_total_unemp = data.frame(cbind("Categories" = c("Violent/Malicious","Traffic","Drugs","Justice","Other"), "Percent of total" = c(100*violent_malicious_sum /19913,100*traffic_sum /19913,100*drugs_sum /19913,100*justice_sum /19913,100*other_sum /19913)))
+ percent_total_unemp
+```
+
+We can see that for unemployed people Violent/malicious crime has the most occurences, making up about 32% of total crimes. The next highest category is other, making up about 25%, followed by traffic violations, making up about 16.3%.
+
+```{r include=FALSE}
+employed <- CCSO[CCSO$occupation != "UNEMPLOYED",]
+
+count_cc_ <- na.omit(count(employed,`crime code`))
+count_cc_top_ <- count_cc_[count_cc_$n>460,]
+```
+
+Violent or Malicious crimes for employed people:
+```{r}
+violent_malicious_ <- count_cc_top_[count_cc_top_$`crime code` == "AGGRAVATED BATTERY" |count_cc_top_$`crime code` == "BATTERY" |count_cc_top_$`crime code` == "BURGLARY" |count_cc_top_$`crime code` == "CRIMINAL DAMAGE TO PROPERTY" |count_cc_top_$`crime code` == "DOMESTIC BATTERY" | count_cc_top_$`crime code` =="RETAIL THEFT"| count_cc_top_$`crime code` == "THEFT: OVER $300",]
+violent_malicious_
+violent_malicious_sum_ = sum(violent_malicious_$n)
+```
+
+Traffic Violations for employed people:
+```{r}
+traffic_ <- count_cc_top_[count_cc_top_$`crime code` == "OTHER TRAFFIC OFFENSES"|count_cc_top_$`crime code` == "SUSPENDED OR REVOKED DRIVERS LICENSE" |count_cc_top_$`crime code` == "NO AUTOMOBILE INSURANCE"|count_cc_top_$`crime code` == "NO DRIVERS LICENSE",]
+traffic_
+traffic_sum_ = sum(traffic_$n)
+```
+
+Drug violations for employed people:
+```{r}
+drugs_ <- count_cc_top_[count_cc_top_$`crime code` == "CANNABIS: POSSESSION OF 30 GRAMS OR LESS" | count_cc_top_$`crime code` =="DRIVING UNDER THE INFLUENCE OF ALCOHOL"| count_cc_top_$`crime code` =="POSSESSING A CONTROLLED SUBSTANCE"|count_cc_top_$`crime code` =="POSSESSION OF DRUG EQUIPMENT",]
+drugs_
+drugs_sum_ = sum(drugs_$n)
+```
+
+Justice system related crimes for employed people:
+```{r}
+justice_ <- count_cc_top_[count_cc_top_$`crime code` ==  "RESISTING,OBSTRUCTING,OR DISARMING A POLICE OFC" |count_cc_top_$`crime code` == "WARRANTS/SUBPEONAS/SUMMONS",]
+justice_   
+justice_sum_ = sum(justice_$n)
+```
+
+Other crimes for employed people:
+```{r}
+other_ <- count_cc_top_[count_cc_top_$`crime code` == "ALL OTHER DISORDERLY CONDUCT: NOT DRUNK" |count_cc_top_$`crime code` == "MISC JAIL CODE" |count_cc_top_$`crime code` =="OTHER CRIMINAL OFFENSES",]
+other_
+other_sum_ = sum(other_$n)
+```
+
+Overall breakdown of categorized crimes for employed people:
+```{r}
+overall_sum = violent_malicious_sum_ +traffic_sum_ + drugs_sum_+justice_sum_+other_sum_
+
+ categorized_crimes_emp = data.frame(cbind("Categories" = c("Violent/Malicious","Traffic","Drugs","Justice","Other"),"Count" = c(violent_malicious_sum_,traffic_sum_,drugs_sum_,justice_sum_,other_sum_)))
+ categorized_crimes_emp
+ 
+ percent_total_emp = data.frame(cbind("Categories" = c("Violent/Malicious","Traffic","Drugs","Justice","Other"), "Percent of total" = c(100*violent_malicious_sum_ /overall_sum,100*traffic_sum_ /overall_sum,100*drugs_sum_ /overall_sum,100*justice_sum_ /overall_sum,100*other_sum_ /overall_sum)))
+ percent_total_emp
+```
+
+We can see that compared to unemployed people, traffic violations are much more prevalent and drug violations are slightly more common. COnversely, violent crimes and justice system related crimes are less prevalent.
+
+
+Comparison:
+```{r}
+graph1_data = rbind(c(6420,3252,2633,2633,4975), c(6703,9361,5107,1952,5498))
+
+barplot(graph1_data, beside = TRUE, names.arg = c("Violent/Malicious","Traffic","Drugs","Justice","Other"), col = c("darkblue","orange"),main = "Crimes Committed by Category", ylim = c(0,10000), ylab = "crimes committed", xlab = "Crime Category", legend = c("Unemployed", "Employed") )
+
+graph2_data = rbind(c(32.24,16.33,13.223,13.223,24.984),c(23.42,32.707,17.844,6.82,19.21))
+
+barplot(graph2_data,beside = TRUE, ylim = c(0,40), col = c("darkblue","orange"),main = "Percentage of Total Crimes Committed by Category ",xlab = "Crime Category", ylab = "Percentage of total crime", legend = c("Unemployed","Employed"), names.arg = c("Violent/Malicious","Traffic","Drugs","Justice","Other"))
+```
+
+One thing that surprised us about these results was that drug crimes were more common among employed people, however it does make logical sense given that drugs tend to be an expensive habit and employed people are generally more financially stable than unemployed people. This same logic also explains why traffic crimes are so much more revalent among the employed group.
+
+
+Text Analysis for Unemployed people:
+```{r include=FALSE}
+library("tm")
+library("wordcloud")
+library("SnowballC")
+library(tidyverse)
+library("RColorBrewer")
+crimes_unemp <- na.omit(unemployed$`crime code`)
+
+docs <- Corpus(VectorSource(crimes_unemp))
+docs<- tm_map(docs, content_transformer(tolower))
+docs <- tm_map(docs, removeNumbers)
+docs <- tm_map(docs, removeWords, stopwords("english"))
+docs <- tm_map(docs, removeWords, c("other","code","criminal","offenses","misc","jail")) 
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, stripWhitespace)
+dtm <- TermDocumentMatrix(docs)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+```
+
+```{r}
+wordcloud(words = d$word, freq = d$freq, min.freq = 200, random.order=FALSE, rot.per = .35,colors=brewer.pal(8,"Dark2"))
+```
+
+Text Analysis for Employed People:
+```{r include=FALSE}
+crimes_emp <- na.omit(employed$`crime code`)
+
+docs <- Corpus(VectorSource(crimes_emp))
+docs<- tm_map(docs, content_transformer(tolower))
+docs <- tm_map(docs, removeNumbers)
+docs <- tm_map(docs, removeWords, stopwords("english"))
+docs <- tm_map(docs, removeWords, c("other","code","criminal","offenses","misc","jail")) 
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, stripWhitespace)
+dtm <- TermDocumentMatrix(docs)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+```
+
+```{r}
+wordcloud(words = d$word, freq = d$freq, min.freq = 200, random.order=FALSE, rot.per = .35,colors=brewer.pal(8,"Dark2"))
+```
+
+From these word clouds obtained from text mining we can see the visualized trend that unemployed people commit a high percentage of violent crime with the word "Battery" clearly at the forefront. We aslo observe the trend of traffic violations among employed people with words like "traffic", "drivers", "license", "suspended", etc. all very prevalent. It is also worth noting that there are many more prevalent words in the employed cloud than the umpemployed cloud which would suggest that the distribution of different crimes is more spread out among employed people.
+
+#### Student Group - Crime Code Diversion in Age
+
+```{r include=FALSE}
+#read in CCSO data
+CCSO=read_csv("https://uofi.box.com/shared/static/9elozjsg99bgcb7gb546wlfr3r2gc9b7.csv", col_types = cols(`BOOKING DATE` = col_date(format = "%m/%d/%Y"), 
+                            `RELEASED DATE` = col_date(format = "%m/%d/%Y"), 
+                              `STATUTE TYPE` = col_skip(), X35 = col_skip()))
+#filter out the student group in this dataset
+ccso=CCSO %>% select(`EMPLOYMENT STATUS`, `CRIME CODE`, 
+                     `Age at Arrest`) %>% filter(`EMPLOYMENT STATUS` ==
+                                                   "Student")
+#change column names to lower case  
+colnames(ccso)=c("status", "crime", "age")
+```
+
+For student group in this dataset, we consider age is a good variable to classify the types of crime, since students in different age group usually live in different environment and face different social problem. Therefore, it is important first to have a look on the distribution of crime code in student group.
+
+However, since there are about 131 different crime codes are committed by students, it is too large for us to classify. We decide to merge crime code into five major crime code categories based on their attributes, which include traffic offenses, violent crime, social crime, property crime, and other crime.
+
+```{r}
+str(factor(ccso$crime))
+```
+
+```{r include=FALSE}
+#merge crime code into larger categories
+library(plyr)
+ccso$crime=revalue(ccso$crime, c("OTHER TRAFFIC OFFENSES" = "Traffic Offenses", 
+                  "DRIVING UNDER THE INFLUENCE OF ALCOHOL" = "Traffic Offenses",
+                  "SUSPENDED OR REVOKED DRIVERS LICENSE" = "Traffic Offenses", 
+                  "NO AUTOMOBILE INSURANCE" = "Traffic Offenses", 
+                  "DRIVING UNDER THE INFLUENCE OF DRUGS" = "Traffic Offenses", 
+                  "NO DRIVERS LICENSE" = "Traffic Offenses", 
+                  "HIT AND RUN" = "Traffic Offenses", "DOMESTIC BATTERY" =
+                    "Violent Crime", "AGGRAVATED BATTERY" = "Violent Crime", 
+                  "BATTERY" = "Violent Crime", "AGGRAVATED ASSAULT" = "Violent Crime", 
+                  "ARMED ROBBERY" = "Violent Crime", "ROBBERY" = "Violent Crime", 
+                  "RESISTING,OBSTRUCTING,OR DISARMING A POLICE OFC" = "Social Crime", 
+                  "CANNABIS: POSSESSION OF 30 GRAMS OR LESS" = "Social Crime", 
+                  "POSSESSION OF DRUG EQUIPMENT" = "Social Crime", 
+                  "ILLEGAL CONSUMPTION OF ALCOHOL BY A MINOR" = "Social Crime", 
+                  "POSSESSING A CONTROLLED SUBSTANCE" = "Social Crime", 
+                  "ALL OTHER DISORDERLY CONDUCT: NOT DRUNK" = "Social Crime", 
+                  "CRIMINAL TRESPASS TO LAND" = "Social Crime", 
+                  "OBSTRUCTING JUSTICE" = "Social Crime", 
+                  "DELIVERY OF CANNABIS 30 GMS AND UNDER" = "Social Crime", 
+                  "MOB ACTION" = "Social Crime", 
+                  "DELIVERY OF CANNABIS OVER 30 GMS" = "Social Crime", 
+                  "UNLAWFUL USE OF A WEAPON" = "Social Crime", 
+                  "CRIMINAL TREPASS TO STATE SUPPORTED LAND" = "Social Crime", 
+                  "ILLEGAL POSSESSION OF ALCOHOL BY A MINOR" = "Social Crime", 
+                  "ILLEGAL LIQUOR ACCESS" = "Social Crime", 
+                  "CANNABIS: POSSESSION OF OVER 30 GRAMS" = "Social Crime", 
+                  "TRANSPORTATION OF ALCOHOLIC LIQUOR" = "Social Crime", 
+                  "FORGERY" = "Social Crime", "HOME INVASION" = "Social Crime", 
+                  "CRIMINAL TRESPASS TO RESIDENCE" = "Social Crime", 
+                  "DECEPTIVE PRACTICES" = "Social Crime", 
+                  "RETAIL THEFT" = "Property Crime", 
+                  "BURGLARY" = "Property Crime", 
+                  "CRIMINAL DAMAGE TO PROPERTY" = "Property Crime", 
+                  "THEFT: $300 AND UNDER" = "Property Crime", 
+                  "THEFT: OVER $300" = "Property Crime", 
+                  "RESIDENTIAL BURGLARY" = "Property Crime", 
+                  "CRIMINAL DAMAGE TO STATE SUPPORTED PROPERTY" = "Property Crime", 
+                  "BURGLARY FROM MOTOR VEHICLE" = "Property Crime", 
+                  "POSSESSION OF STOLEN PROPERTY" = "Property Crime", 
+                  "OTHER CRIMINAL OFFENSES" = "Other Crime", 
+                  "MISC JAIL CODE" = "Other Crime", 
+                  "WARRANTS/SUBPEONAS/SUMMONS" = "Other Crime", 
+                  "UNLAWFUL RESTRAINT (INCLUDES AGGRAVATED)" = "Other Crime", 
+                  "DELIVERY OF OR POSSESSION OF W/ INTENT TO DELIVER" = "Other Crime", 
+                  "PAROLE REVOCATION" = "Other Crime", 
+                  "PROBATION VIOLATION" = "Other Crime"))
+
+ccso2=ccso %>% filter(crime == "Traffic Offenses" | crime == "Social Crime" |  
+                        crime == "Violent Crime" | crime == "Property Crime" |  
+                        crime == "Other Crime")
+```
+
+```{r}
+str(factor(ccso2$crime))
+```
+
+```{r include=FALSE}
+#plot frequency of each crime categories
+sct=sort(round(prop.table(table(ccso2$crime)),2))
+frebp=ggplot(data=as.data.frame(sct), aes(x=Var1, y=Freq)) + 
+  geom_bar(position="dodge",stat="identity", 
+           fill=c("gray", "gray", "gray", "orange", "orange"), width = 0.7) + 
+  coord_flip() + 
+  ggtitle("Frequency of Crime Type Committed by Students") + 
+  theme(plot.title = element_text(size = 12, face = "bold")) + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_blank(), 
+        axis.title.x = element_blank(), axis.title.y = element_blank(), 
+        axis.ticks.x = element_blank(), axis.text.x = element_blank()) + 
+  geom_text(aes(label = paste0(Freq*100, "%"), fontface = 1), size = 4, position = position_stack(vjust = 1.1))
+```
+
+The bar plot of frequency for crime types clearly shows that social crime and traffic offenses each is about 2 times than any other single category. Also, these two crime types together contribute to more than half of all crimes committed by students.
+
+This interesting fact attracts our attention, and we then more focus on these two crime types.
+
+```{r}
+frebp
+```
+
+```{r include=FALSE}
+#filter out the two most frequent crime types
+ccso3=ccso2 %>% filter(crime == "Traffic Offenses" | crime == "Social Crime")
+ccso3$crime = factor(ccso3$crime)
+#building decision tree
+set.seed(3975)
+ids<-sample(nrow(ccso3),floor(0.7*nrow(ccso3)))
+trainingData <- ccso3[ids,]
+testingData <- ccso3[-ids,]
+library(tree)
+fittree <- tree(crime ~ age , data = trainingData)
+```
+
+The classification tree is build specifically for the two types of crime selected before, based on random sampling for 70% of the original data.
+
+We notice that the traffic offenses are concentrated around age group of 19-21. This might because many of students at this age group just get their first car or driver license and they are new to the road. It suggests that maybe we should give more advice or lessons about driving for students at this age group.
+
+```{r}
+plot(fittree)
+text(fittree, pretty=0)
+```
+
+Moreover, we apply our model to predict the random sampling for remaining 30% of the original data, the testing data. We generate the confusion table of the result. It shows that we correctly classify about 77% of the social crime and about 61% of the traffic offenses. The correctness does not seem to be very high. We think some potential	factors may be there are too many crime codes that are counted as social crime, since some outliers could highly affect our tree construction.
+
+```{r}
+#prediction on testing data
+testingData_response <- testingData$crime
+testpredz <- predict(fittree, testingData, type="class")
+#Confusion table
+round(prop.table(table(testpredz,testingData_response),1),2)
+```
+
+
+
+#### Military Group - Crime Code Diversion in Demographics
+In this part, we will look into different crime types for people who were in military. To better examine the differences between different types of people, I first used k-means clustering to separate all these 2542 military observations into several clusters using demographic variables.
+
+```{r include=FALSE}
+ccso <- read_csv("https://uofi.box.com/shared/static/9elozjsg99bgcb7gb546wlfr3r2gc9b7.csv", 
+                 col_types = cols(`Age at Arrest` = col_number(), 
+                 `Age at Release` = col_number(), 
+                 `BOOKING DATE` = col_skip(), `BOOKING NUMBER` = col_skip(), 
+                 `BOOKING TIME` = col_skip(), `Booking Date/Time` = col_datetime(format = "%m/%d/%y %H:%M:%S"), 
+                 `CHARGE/STATUTE` = col_skip(), `CUSTODY CLASS` = col_skip(), 
+                 `Days in Jail` = col_skip(), Hours = col_skip(), 
+                 `JACKET NUMBER` = col_skip(), `JACKET TYPE` = col_skip(), 
+                 Minutes = col_skip(), `RELEASED DATE` = col_skip(), 
+                 `RELEASED REASON` = col_skip(), `RELEASED TIME` = col_skip(), 
+                 `Release Date/Time` = col_datetime(format = "%m/%d/%y %H:%M:%S"), 
+                 `STATUTE TYPE` = col_skip(), Seconds = col_skip(), 
+                 X35 = col_skip(), `ZIP CODE` = col_character()))
+
+# change missing military statues into None
+ccso$MILITARY[which(is.na(ccso$MILITARY))] = 'None'
+
+# seperate incarnation time into 15 slots to perform histogram
+# bins = seq(min(ccso$length), max(ccso$length), by = max(ccso$length)/15)
+
+# delete all the observations with missing values
+# wrong method
+# ccso1 = ccso[-which(is.na(ccso)), ]
+
+ccso1 = ccso %>% drop_na()
+
+
+# for ages, we can use slots to summarize them
+ccso1[which(ccso1$`Age at Arrest` < 20), "Age at Arrest"] = 1
+ccso1[which(ccso1$`Age at Arrest` >= 20 & ccso1$`Age at Arrest` <30), "Age at Arrest"] = 2
+ccso1[which(ccso1$`Age at Arrest` >= 30 & ccso1$`Age at Arrest` <40), "Age at Arrest"] = 3
+ccso1[which(ccso1$`Age at Arrest` >= 40 & ccso1$`Age at Arrest` <50), "Age at Arrest"] = 4
+ccso1[which(ccso1$`Age at Arrest` >= 50 & ccso1$`Age at Arrest` <60), "Age at Arrest"] = 5
+ccso1[which(ccso1$`Age at Arrest` >= 60 & ccso1$`Age at Arrest` <70), "Age at Arrest"] = 6
+ccso1[which(ccso1$`Age at Arrest` >= 70), "Age at Arrest"] = 7
+
+ccso1$`Age at Arrest` = as.factor(ccso1$`Age at Arrest`)
+
+
+# for Citizenship, we generalize them into US and others
+
+ccso1$CITIZENSHIP[which(ccso1$CITIZENSHIP == "UNITED STATES")] = "US"
+ccso1$CITIZENSHIP[which(ccso1$CITIZENSHIP != "US")] = "Others"
+
+# for Race, we generalize them into Asian/Pacific Islander, Black, Hispanic, White and Others
+ccso1$RACE[which(ccso1$RACE %in% c("Native American", "Unknown", "White (Hispanic)"))] = "Others"
+
+# for military, we generalize them into None and Military
+ccso1$MILITARY[which(ccso1$MILITARY != "None")] = "Military"
+
+ccso1_M = ccso1[which(ccso1$MILITARY == "Military"),]
+# extract all the useful demografical variables to perform clustering
+
+demog = c("EMPLOYMENT STATUS", "RACE", "SEX", "CITIZENSHIP", "MARITIAL STATUS", "Age at Arrest")
+q1 = ccso1_M[, demog]
+
+
+# converting all the variables into dummy variables
+library(fastDummies)
+
+q1M_dummies = dummy_cols(q1, remove_selected_columns = TRUE)
+
+# perform k-means clustering on these dummy variables
+set.seed(448)
+
+demoClusterM <- kmeans(q1M_dummies, 3, nstart = 800)
+```
+
+```{r}
+# plot
+library(cluster)
+library(fpc)
+plotcluster(q1M_dummies, demoClusterM$cluster)
+title('Clusters of Military People')
+```
+
+From this plot, we can see that these observations are well separated into three clusters.
+
+Then we can take a futher look into the details of these clusters to find out the differences between them.
+
+```{r include=FALSE}
+cluster1 = ccso1_M[which(demoClusterM$cluster == 1), ]
+cluster2 = ccso1_M[which(demoClusterM$cluster == 2), ]
+cluster3 = ccso1_M[which(demoClusterM$cluster == 3), ]
+```
+
+```{r}
+# RACE
+print("RACE IN CLUSTER1")
+table(cluster1$RACE)
+print("RACE IN CLUSTER2")
+table(cluster2$RACE)
+print("RACE IN CLUSTER3")
+table(cluster3$RACE)
+```
+```{r}
+# MARITAL STATUS
+print("MARITAL STATUS IN CLUSTER1")
+table(cluster1$`MARITIAL STATUS`)
+print("MARITAL STATUS IN CLUSTER2")
+table(cluster2$`MARITIAL STATUS`)
+print("MARITAL STATUS IN CLUSTER3")
+table(cluster3$`MARITIAL STATUS`)
+```
+
+```{r}
+# Age
+print("AGE IN CLUSTER1")
+table(cluster1$`Age at Arrest`)
+print("AGE STATUS IN CLUSTER2")
+table(cluster2$`Age at Arrest`)
+print("AGE STATUS IN CLUSTER3")
+table(cluster3$`Age at Arrest`)
+```
+
+As we can see from the comparison above, these clusters are mainly distinguished from each other in three dimensions - race, marital status and age.
+
+
+Since the clusters have different numbers assigned to them every time we run the code, so we can just summarize them using a fixed cluster number. In this way, cluster1 is mainly about black people with military records, cluster2 is about single non-black military people and cluster3 is about the rest non-black, non-single people who were in military.
+
+After the clustering, we can analyze the crime patterns for each cluster.
+
+```{r include=FALSE}
+# plotting
+
+cluster1_cc <- as.data.frame(table(cluster1$`CRIME CODE`))
+cluster1_cc <- cluster1_cc[order(cluster1_cc$Freq, decreasing = TRUE), ]
+ratio1 <- cluster1_cc$Freq/sum(cluster1_cc$Freq)
+cluster1_cc <- cbind(cluster1_cc, "Ratio" = round(ratio1,4))
+
+cluster2_cc <- as.data.frame(table(cluster2$`CRIME CODE`))
+cluster2_cc <- cluster2_cc[order(cluster2_cc$Freq, decreasing = TRUE), ]
+ratio2 <- cluster2_cc$Freq/sum(cluster2_cc$Freq)
+cluster2_cc <- cbind(cluster2_cc, "Ratio" = round(ratio2,4))
+
+cluster3_cc <- as.data.frame(table(cluster3$`CRIME CODE`))
+cluster3_cc <- cluster3_cc[order(cluster3_cc$Freq, decreasing = TRUE), ]
+ratio3 <- cluster3_cc$Freq/sum(cluster3_cc$Freq)
+cluster3_cc <- cbind(cluster3_cc, "Ratio" = round(ratio3,4))
+
+cluster1_top <- cluster1_cc$Var1[which(cluster1_cc$Ratio >= 0.01)]
+cluster2_top <- cluster2_cc$Var1[which(cluster2_cc$Ratio >= 0.01)]
+cluster3_top <- cluster3_cc$Var1[which(cluster3_cc$Ratio >= 0.01)]
+
+# same high rate crime existing in all clusters
+inter12 <- intersect(cluster1_top, cluster2_top)
+inter_all <- intersect(inter12, cluster3_top)
+
+inter1 <- cluster1_cc[which(cluster1_cc$Var1 %in% inter_all),]
+inter2 <- cluster2_cc[which(cluster2_cc$Var1 %in% inter_all),]
+inter3 <- cluster3_cc[which(cluster3_cc$Var1 %in% inter_all),]
+
+df12 <- rbind(inter1[,-2], inter2[,-2])
+inter_top <- rbind(df12, inter3[,-2])
+
+clusters = as.factor(c(rep(1, 15), rep(2,15), rep(3,15)))
+inter_top <- cbind(inter_top, clusters)
+
+colnames(inter_top) <- c("Crime Code", "Ratio", "Clusters")
+```
+
+```{r}
+# plot
+ggplot(data = inter_top, mapping=aes(x = inter_top$`Crime Code`, y= inter_top$Ratio, fill = inter_top$Clusters)) + 
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  xlab('Crime Code')+ ylab('Rate in each Cluster') +
+  labs(title = "High Rate Crimes in All Three Clusters", fill="Clusters") +
+  theme(axis.text.x=element_text(angle=100, hjust=1, vjust = 0.5), panel.background = element_blank())
+```
+
+So above is the plot showing all the crimes which appear as high-rate in all these three clusters. "High-rate" is defined as "higher than 0.01" which means one in one hundred people in that cluster has conducted this crime.
+
+From this plot we can see that cluster2 and cluster3 roughly share a similar pattern, both of which have the same top2 crimes falling in the traffic offense category, driving under the influence of alcohol and other traffice offenses. In comparison, cluster1 has a relatively lower rate in driving under the influence of alcohol. But we can also see that cluster1 is more evenly distributed. The top 4 or 6 crimes in cluster1 don't have that much of differences in rates, and cluster1 seems to have higher rate in most of other lower-rate crimes in this plot.
+
+Besides the top crimes in common, there are unique crimes appear frequently in each cluster. Combined we can get the unique patterns for each cluster. Cluster1, the black military people cluster, has more crimes about justice system offenses like violations and domestic battery. Cluster2 and cluster3, the non-black military clusters are more concentrated on traffic offenses. Cluster2, the cluster with people being single and relatively younger, has higher rate of aggravated battery, no aotumobile insurance and low-amount theft. Cluster3 has higher rate of hit and run and big-amount theft besides traffic offenses.
+
+## Conclusion
+
+In conclusion we looked at the crime data of champaign county, specifially among the groups of unemployed people vs employed people, students, and people with military backgrounds.We found that unemployed people commit a higher rate of violent crimes, and justice system related crimes, and a lower rate of traffic and drug violations than employed people. We then found that among students, social crimes are the most common followed by traffic crimes. These two categories make up about 50% of all student crime. Many of the traffic violations among the students counld be caused by new drivers. Finally we observed that people with military backgrounds tend to commit crimes in three clusters based on demographic infomation such as race, age, and marital status. More justice system offenses and domestic battery took place among black people with military backgrounds, traffic offenses are more likely found outside this group. Single non-black people are more likely to conduct aggravated battery and low-amount theft. Non-black non-single military people group have higher rate in hit-and-run and high-amount theft.
+
+Deeper analysis could be done to break each of our three groups into more refined categories to get a better idea of which types of people commit which crimes. For example we could classify students based on school atended, classify employment by sector in which jobs reside, and military status by military branch.
+

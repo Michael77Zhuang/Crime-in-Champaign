@@ -1,2 +1,2 @@
 # Crime-in-Champaign
-Crime Analysis in Champaign County
+This repo contains a project of crime rate analysis in Champaign County of Illinois.
